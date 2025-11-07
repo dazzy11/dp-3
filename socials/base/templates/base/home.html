@@ -51,6 +51,12 @@
          <button class="btn btn-primary">
             <a href="{% url 'add_post' %}" style="color: #fff;text-decoration: none;">Create Post</a>
          </button>
+         <button class="btn btn-primary" style="margin-left: 8px;">
+         <a href="{% url 'events:calendar' %}" style="color: #fff; text-decoration: none;">
+         📅 Calendar
+          </a>
+         </button>
+
           <div class="profile-photo" style="cursor:pointer;">
             <a class="profile" href="{% url 'show_profile_page' user.profile.id %}" style="text-decoration: none;">
            <img src="{{user_profile.profileimg.url}}" alt="profile-photo">
@@ -104,6 +110,10 @@
               <a class="menu-item" href="/password" style="text-decoration: none;">
                 <span><i class="uil uil-lock"></i></span><h3>Change Password</h3>
                 </a>
+                <a class="menu-item" href="{% url 'events:calendar' %}" style="text-decoration: none;">
+  <span><i class="uil uil-calendar-alt"></i></span><h3>Calendar</h3>
+</a>
+
          </div>
          <!-- end of sidebar -->
          <button class="btn btn-primary">

@@ -1,0 +1,183 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Events Calendar</title>
+
+  <!-- FullCalendar (CDN) -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+
+  <style>
+    body { margin: 0; padding: 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #calendar { max-width: 1100px; margin: 0 auto; }
+    dialog { border: none; border-radius: 12px; padding: 0; }
+    .card { padding: 16px 18px; width: min(520px, 96vw); }
+    .row { display: grid; gap: 8px; margin-bottom: 10px; }
+    input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 8px; }
+    .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    button { padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; cursor: pointer; }
+    .danger { background: #fee; border-color: #f99; }
+  </style>
+</head>
+<body>
+  <div id="calendar"></div>
+
+  <dialog id="evDialog">
+    <form id="evForm" class="card" method="dialog">
+      <h3 id="formTitle">Add Event</h3>
+      <input type="hidden" id="evId">
+      <div class="row"><label>Title<input id="title" required></label></div>
+      <div class="row"><label>Start<input id="start" type="datetime-local" required></label></div>
+      <div class="row"><label>End<input id="end" type="datetime-local" required></label></div>
+      <div class="row"><label>Location<input id="location" placeholder="Room 204 or Auditorium"></label></div>
+      <div class="row"><label>Visibility
+        <select id="visibility">
+          <option value="public">Public</option>
+          <option value="friends">Friends</option>
+          <option value="private">Private</option>
+        </select></label>
+      </div>
+      <div class="row"><label>Description<textarea id="description" rows="3"></textarea></label></div>
+      <div class="actions">
+        <button type="button" id="deleteBtn" class="danger" style="display:none">Delete</button>
+        <button type="button" id="cancelBtn">Cancel</button>
+        <button type="submit" id="saveBtn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    // CSRF helper (Django docs)
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    const csrftoken = getCookie('csrftoken');
+
+    const calendarEl = document.getElementById("calendar");
+    const dialog = document.getElementById("evDialog");
+    const form = document.getElementById("evForm");
+
+    const el = (id) => document.getElementById(id);
+
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: "dayGridMonth",
+      headerToolbar: {
+        left: "prev,next today",
+        center: "title",
+        right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek"
+      },
+      selectable: true,
+      editable: true,
+      eventSources: [{
+        url: "{% url 'events:feed' %}",
+        method: "GET",
+        failure: () => alert("Failed to load events"),
+      }],
+      select: (info) => {
+        // open dialog for new event
+        form.reset();
+        el("formTitle").textContent = "Add Event";
+        el("evId").value = "";
+        el("start").value = info.startStr.slice(0,16);
+        el("end").value = info.endStr.slice(0,16);
+        el("deleteBtn").style.display = "none";
+        dialog.showModal();
+      },
+      eventClick: (info) => {
+        // open dialog for view/edit
+        const ev = info.event;
+        const props = ev.extendedProps || {};
+        form.reset();
+        el("formTitle").textContent = "Edit Event";
+        el("evId").value = ev.id;
+        el("title").value = ev.title;
+        el("start").value = ev.start.toISOString().slice(0,16);
+        el("end").value = ev.end ? ev.end.toISOString().slice(0,16) : el("start").value;
+        el("location").value = props.location || "";
+        el("visibility").value = props.visibility || "public";
+        el("description").value = props.description || "";
+        // only owners can delete/edit; else, read-only
+        const isOwner = !!props.isOwner;
+        ["title","start","end","location","visibility","description"].forEach(id => {
+          el(id).disabled = !isOwner;
+        });
+        el("saveBtn").disabled = !isOwner;
+        el("deleteBtn").style.display = isOwner ? "inline-block" : "none";
+        dialog.showModal();
+      },
+      eventDrop: async (info) => {
+        await fetch(`{% url 'events:update' 0 %}`.replace("0", info.event.id), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrftoken },
+          body: JSON.stringify({ start: info.event.start.toISOString(), end: info.event.end?.toISOString() })
+        });
+      },
+      eventResize: async (info) => {
+        await fetch(`{% url 'events:update' 0 %}`.replace("0", info.event.id), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrftoken },
+          body: JSON.stringify({ start: info.event.start.toISOString(), end: info.event.end?.toISOString() })
+        });
+      },
+    });
+
+    calendar.render();
+
+    // form handlers
+    el("cancelBtn").onclick = () => dialog.close();
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const payload = {
+        title: el("title").value,
+        start: el("start").value,
+        end: el("end").value,
+        location: el("location").value,
+        visibility: el("visibility").value,
+        description: el("description").value,
+      };
+      const id = el("evId").value;
+      const url = id ? `{% url 'events:update' 0 %}`.replace("0", id) : `{% url 'events:create' %}`;
+      const method = id ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrftoken },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert("Error saving event");
+        return;
+      }
+      dialog.close();
+      calendar.refetchEvents();
+    };
+
+    el("deleteBtn").onclick = async () => {
+      const id = el("evId").value;
+      if (!id) return;
+      await fetch(`{% url 'events:delete' 0 %}`.replace("0", id), {
+        method: "DELETE",
+        headers: { "X-CSRFToken": csrftoken }
+      });
+      dialog.close();
+      calendar.refetchEvents();
+    };
+  </script>
+</body>
+</html>
